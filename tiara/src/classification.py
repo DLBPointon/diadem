@@ -1,19 +1,18 @@
 import gzip
-from typing import Dict, Union, List
 import warnings
 from contextlib import suppress
+from typing import Dict, List, Union
 
-from Bio.SeqIO.FastaIO import SimpleFastaParser
-from tqdm import tqdm
-from joblib import Parallel, delayed
-
-from skorch import NeuralNetClassifier
 import torch
+from Bio.SeqIO.FastaIO import SimpleFastaParser
+from joblib import Parallel, delayed
+from skorch import NeuralNetClassifier
+from tqdm import tqdm
 
-from tiara.src.prediction import Prediction, SingleResult
 from tiara.src.models import NNet1, NNet2
-from tiara.src.transformations import Transformer, TfidfWeighter
-from tiara.src.utilities import parse_params, chop, time_context_manager
+from tiara.src.prediction import Prediction, SingleResult
+from tiara.src.transformations import TfidfWeighter, Transformer
+from tiara.src.utilities import chop, parse_params, time_context_manager
 
 
 def fun(seq, layer, transformer, fragment_len):
@@ -55,9 +54,7 @@ class Classification:
             models: an iterable of torch model classes describing model used
         """
         self.threads = threads
-        self.params = [
-            parse_params(param) if isinstance(param, str) else param for param in params
-        ]
+        self.params = [parse_params(param) if isinstance(param, str) else param for param in params]
         self.nnets = []
         for model, nnet_weight, params_dict in zip(models, nnet_weights, self.params):
             params_filtered = {
@@ -71,10 +68,7 @@ class Classification:
             net.initialize()
             net.load_params(f_params=nnet_weight)
             self.nnets.append(net)
-        self.transformers = [
-            TfidfWeighter.load_params(tfidf_param_folder)
-            for tfidf_param_folder in tfidf
-        ]
+        self.transformers = [TfidfWeighter.load_params(tfidf_param_folder) for tfidf_param_folder in tfidf]
         self.min_len = min_len
         self.layers = len(nnet_weights)
         self.predictors = [
@@ -115,19 +109,12 @@ class Classification:
 
         do = delayed(fun)
         executor = Parallel(n_jobs=self.threads)
-        tasks = (
-            do(x[1], 0, self.predictors[0].transformer, self.params[0]["fragment_len"])
-            for x in seqs
-        )
+        tasks = (do(x[1], 0, self.predictors[0].transformer, self.params[0]["fragment_len"]) for x in seqs)
         cont_manager = (
-            time_context_manager("Calculating first stage sequence representations")
-            if verbose
-            else suppress()
+            time_context_manager("Calculating first stage sequence representations") if verbose else suppress()
         )
         with cont_manager:
-            seqs = list(
-                zip([x[0] for x in seqs], [x[1] for x in seqs], executor(tasks))
-            )
+            seqs = list(zip([x[0] for x in seqs], [x[1] for x in seqs], executor(tasks)))
 
         # Two-step classification
         if verbose:
@@ -138,9 +125,7 @@ class Classification:
         else:
             # tasks = (do(seq) for seq in seqs)
             # fst_stage_results = executor(tasks)
-            fst_stage_results = [
-                self.predictors[0].make_prediction(seq) for seq in seqs
-            ]
+            fst_stage_results = [self.predictors[0].make_prediction(seq) for seq in seqs]
         if verbose:
             print("Done")
         predictions = []
@@ -161,11 +146,7 @@ class Classification:
                 for record in to_second_stage
             )
             cont_manager = (
-                time_context_manager(
-                    "Calculating second stage sequence representations"
-                )
-                if verbose
-                else suppress()
+                time_context_manager("Calculating second stage sequence representations") if verbose else suppress()
             )
             with cont_manager:
                 seqs2 = list(
@@ -183,9 +164,7 @@ class Classification:
             else:
                 # tasks = (do_second_stage(seq) for seq in seqs2)
                 # snd_stage_results = executor(tasks)
-                snd_stage_results = [
-                    self.predictors[1].make_prediction(seq) for seq in seqs2
-                ]
+                snd_stage_results = [self.predictors[1].make_prediction(seq) for seq in seqs2]
             for fst, snd in zip(to_second_stage, snd_stage_results):
                 assert fst.desc == snd.desc, "Descriptions not the same"
                 assert fst.seq == snd.seq, "Sequences not the same"
