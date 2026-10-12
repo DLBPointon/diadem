@@ -6,6 +6,8 @@
 - Cleaned up some code (`src/main.py`)
 - Replaced print statements with `logging` module
 
+## Intro
+
 Deep-learning-based approach for identification of eukaryotic sequences in the metagenomic data powered by [PyTorch](https://pytorch.org).  
 
 The sequences are classified in two stages:
