@@ -5,6 +5,7 @@ import os
 import sys
 import time
 from collections import Counter
+from functools import wraps
 
 import pkg_resources
 import torch
@@ -55,6 +56,8 @@ The sequences are classified in two stages:
 
 
 def logger_wrapper(func):
+    @wraps(func)
+    # Using wraps to preserve the original function's metadata e.g. name, docstring, etc.
     def wrapper(*args, **kwargs):
         logger.info(f"Saving output to {args[0]}")
         return func(*args, **kwargs)
