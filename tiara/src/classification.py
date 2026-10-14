@@ -1,5 +1,5 @@
 import gzip
-import warnings
+import logging
 from contextlib import suppress
 from typing import Dict, List, Union
 
@@ -14,8 +14,10 @@ from tiara.src.prediction import Prediction, SingleResult
 from tiara.src.transformations import TfidfWeighter, Transformer
 from tiara.src.utilities import chop, parse_params, time_context_manager
 
+logger = logging.getLogger(__name__)
 
-def fun(seq, layer, transformer, fragment_len):
+
+def transform_chopped_sequence(seq, layer, transformer, fragment_len):
     chopped = chop(seq, fragment_len)
     return transformer.transform(chopped)
 
@@ -71,7 +73,12 @@ class Classification:
         self.transformers = [TfidfWeighter.load_params(tfidf_param_folder) for tfidf_param_folder in tfidf]
         self.min_len = min_len
         self.layers = len(nnet_weights)
-        self.predictors = [
+        self.predictors = self.get_list_of_predictions()
+
+    def get_list_of_predictions(
+        self,
+    ) -> List[Prediction]:
+        return [
             Prediction(
                 prob_cutoff=self.params[layer]["prob_cutoff"],
                 layer=layer,
@@ -99,17 +106,24 @@ class Classification:
         -------
             predictions: a list of lists containing SingleResult objects.
         """
-        if sequences_fname.endswith(".gz"):
-            with gzip.open(sequences_fname, "rt") as sequences_handle:
-                seqs = list(SimpleFastaParser(sequences_handle))
-        else:
-            with open(sequences_fname, "r") as sequences_handle:
-                seqs = list(SimpleFastaParser(sequences_handle))
-        seqs = [x for x in seqs if len(x[1]) >= self.min_len]
 
-        do = delayed(fun)
+        if sequences_fname.endswith(".gz"):
+            handler = gzip.open
+            mode = "rt"  # Read Text mode for gzipped data
+        else:
+            handler = open
+            mode = "r"
+
+        with handler(sequences_fname, mode) as sequences_handle:
+            seqlist = list(SimpleFastaParser(sequences_handle))
+
+        seqs = [x for x in seqlist if len(x[1]) >= self.min_len]
+
+        transformed_sequences = delayed(transform_chopped_sequence)
         executor = Parallel(n_jobs=self.threads)
-        tasks = (do(x[1], 0, self.predictors[0].transformer, self.params[0]["fragment_len"]) for x in seqs)
+        tasks = (
+            transformed_sequences(x[1], 0, self.predictors[0].transformer, self.params[0]["fragment_len"]) for x in seqs
+        )
         cont_manager = (
             time_context_manager("Calculating first stage sequence representations") if verbose else suppress()
         )
@@ -118,26 +132,29 @@ class Classification:
 
         # Two-step classification
         if verbose:
-            print("Performing first stage of classification.")
+            logger.debug("Performing first stage of classification.")
             fst_stage_results = []
             for seq in tqdm(seqs):
                 fst_stage_results.append(self.predictors[0].make_prediction(seq))
         else:
-            # tasks = (do(seq) for seq in seqs)
+            # tasks = (transformed_sequences(seq) for seq in seqs)
             # fst_stage_results = executor(tasks)
             fst_stage_results = [self.predictors[0].make_prediction(seq) for seq in seqs]
+
         if verbose:
-            print("Done")
+            logger.debug("Done")
         predictions = []
         to_second_stage = []
+
         for prediction in fst_stage_results:
             if prediction.cls[0] == "organelle":
                 to_second_stage.append(prediction)
             else:
                 predictions.append(prediction)
+
         if to_second_stage:
             tasks = (
-                do(
+                transformed_sequences(
                     record.seq,
                     1,
                     self.predictors[1].transformer,
@@ -150,6 +167,7 @@ class Classification:
             )
             with cont_manager:
                 seqs2 = list(
+                    # SIGNIFICANT WASTE OF CYCLES, SHOULD BE AN UNPACK
                     zip(
                         [record.desc for record in to_second_stage],
                         [record.seq for record in to_second_stage],
@@ -157,7 +175,7 @@ class Classification:
                     )
                 )
             if verbose:
-                print("Performing second stage of classification.")
+                logger.info("Performing second stage of classification.")
                 snd_stage_results = []
                 for seq in tqdm(seqs2):
                     snd_stage_results.append(self.predictors[1].make_prediction(seq))

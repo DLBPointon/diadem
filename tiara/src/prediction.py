@@ -1,11 +1,10 @@
-from typing import Tuple, Dict, List
 import warnings
+from typing import Dict, List, Tuple
 
-from skorch import NeuralNetClassifier
 import numpy as np
+from skorch import NeuralNetClassifier
 
-from tiara.src.utilities import chop, SingleResult
-
+from tiara.src.utilities import SingleResult, chop
 
 classes_mapping = {
     "organelle": 0,
@@ -23,9 +22,7 @@ id_to_class = {
 }
 
 
-def predict_with_threshold(
-    probs: np.ndarray, record: Tuple[str, str], prob_cutoff: float, layer: int
-) -> SingleResult:
+def predict_with_threshold(probs: np.ndarray, record: Tuple[str, str], prob_cutoff: float, layer: int) -> SingleResult:
     """Predict the class.
 
     Parameters
@@ -40,26 +37,16 @@ def predict_with_threshold(
     chosen_class, prob_value = max(counts.items(), key=lambda x: x[1])
     if prob_value > prob_cutoff:
         if layer == 0:
-            return SingleResult(
-                cls=[chosen_class, "n/a"], desc=desc, seq=seq, probs=[counts, {}]
-            )
+            return SingleResult(cls=[chosen_class, "n/a"], desc=desc, seq=seq, probs=[counts, {}])
         else:
-            return SingleResult(
-                cls=["organelle", chosen_class], desc=desc, seq=seq, probs=[{}, counts]
-            )
+            return SingleResult(cls=["organelle", chosen_class], desc=desc, seq=seq, probs=[{}, counts])
     elif layer == 0 and counts["archaea"] + counts["bacteria"] > prob_cutoff:
-        return SingleResult(
-            cls=["prokarya", "n/a"], desc=desc, seq=seq, probs=[counts, {}]
-        )
+        return SingleResult(cls=["prokarya", "n/a"], desc=desc, seq=seq, probs=[counts, {}])
     else:
         if layer == 0:
-            return SingleResult(
-                cls=["unknown", "n/a"], desc=desc, seq=seq, probs=[counts, {}]
-            )
+            return SingleResult(cls=["unknown", "n/a"], desc=desc, seq=seq, probs=[counts, {}])
         else:
-            return SingleResult(
-                cls=["organelle", "unknown"], desc=desc, seq=seq, probs=[{}, counts]
-            )
+            return SingleResult(cls=["organelle", "unknown"], desc=desc, seq=seq, probs=[{}, counts])
 
 
 class Prediction:
@@ -99,9 +86,9 @@ class Prediction:
         self.tfidf = tnf
         self.transformer = transformer
 
-    def make_prediction(
-        self, single_record: Tuple[str, str, np.ndarray]
-    ) -> SingleResult:
+    # TYPE HERE NEEDS INVESTIDATING THE FUNCTION SUPPLYING THIS SHOULD BE A Tuple[str, str] AS
+    # NOTED BELOW IN THE DOCSTRING, SO WHY LIKE THIS?
+    def make_prediction(self, single_record: Tuple[str, str, np.ndarray]) -> SingleResult:
         """Make a prediction on a single sequence.
 
         The decision rule works as follows:
@@ -129,6 +116,4 @@ class Prediction:
         # data = chop(seq, fragment_len=self.fragment_len)
         nnet_predictions = self.nnet.predict_proba(bow)
         mean_predictions = np.mean(nnet_predictions, axis=0)
-        return predict_with_threshold(
-            mean_predictions, (desc, seq), self.prob_cutoff, self.layer
-        )
+        return predict_with_threshold(mean_predictions, (desc, seq), self.prob_cutoff, self.layer)
