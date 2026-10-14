@@ -1,4 +1,17 @@
-# [Tiara](https://ibe-uw.github.io/tiara/)
+# Diadem - forked from [Tiara](https://ibe-uw.github.io/tiara/)
+
+## Changes
+
+- Added Version flag
+- Cleaned up some code (`src/main.py`)
+- Replaced print statements with `logging` module
+
+### ToDo's
+- Clean the rest of the codebase
+- Add Doc strings
+- Update dependencies to newer versions with minimal changes in output
+
+## Intro
 
 Deep-learning-based approach for identification of eukaryotic sequences in the metagenomic data powered by [PyTorch](https://pytorch.org).  
 
