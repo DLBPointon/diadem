@@ -7,7 +7,6 @@ import torch
 from Bio.SeqIO.FastaIO import SimpleFastaParser
 from joblib import Parallel, delayed
 from skorch import NeuralNetClassifier
-from tqdm import tqdm
 
 from tiara.src.models import NNet1, NNet2
 from tiara.src.prediction import Prediction, SingleResult
@@ -132,25 +131,16 @@ class Classification:
         tasks = (
             transformed_sequences(x[1], 0, self.predictors[0].transformer, self.params[0]["fragment_len"]) for x in seqs
         )
-        cont_manager = (
-            time_context_manager("Calculating first stage sequence representations") if verbose else suppress()
-        )
+        cont_manager = time_context_manager("First Stage Classification: Calculating sequence representations")
         with cont_manager:
             seqs = list(zip([x[0] for x in seqs], [x[1] for x in seqs], executor(tasks)))
 
         # Two-step classification
-        if verbose:
-            logger.debug("Performing first stage of classification.")
-            fst_stage_results = []
-            for seq in tqdm(seqs):
-                fst_stage_results.append(self.predictors[0].make_prediction(seq))
-        else:
-            # tasks = (transformed_sequences(seq) for seq in seqs)
-            # fst_stage_results = executor(tasks)
-            fst_stage_results = [self.predictors[0].make_prediction(seq) for seq in seqs]
+        # Having a progress bar is pretty but not necessary
+        logger.debug("First Stage Classification: Running")
+        fst_stage_results = [self.predictors[0].make_prediction(seq) for seq in seqs]
 
-        if verbose:
-            logger.debug("Done")
+        logger.debug("First Stage Classification: Completed")
         predictions = []
         to_second_stage = []
 
@@ -170,9 +160,7 @@ class Classification:
                 )
                 for record in to_second_stage
             )
-            cont_manager = (
-                time_context_manager("Calculating second stage sequence representations") if verbose else suppress()
-            )
+            cont_manager = time_context_manager("Second Stage Classification: Calculating sequence representations")
             with cont_manager:
                 seqs2 = list(
                     # SIGNIFICANT WASTE OF CYCLES, SHOULD BE AN UNPACK
@@ -182,18 +170,15 @@ class Classification:
                         executor(tasks),
                     )
                 )
-            if verbose:
-                logger.info("Performing second stage of classification.")
-                snd_stage_results = []
-                for seq in tqdm(seqs2):
-                    snd_stage_results.append(self.predictors[1].make_prediction(seq))
-            else:
-                # tasks = (do_second_stage(seq) for seq in seqs2)
-                # snd_stage_results = executor(tasks)
-                snd_stage_results = [self.predictors[1].make_prediction(seq) for seq in seqs2]
+
+            # Note: Having a progress bar is pretty but not necessary
+            logger.debug("Second Stage Classification: Running")
+            # NOTE: REPLACE WITH A LOGGER WRAPPER AS THIS PATTERN IS USED TWICE?
+            snd_stage_results = [self.predictors[1].make_prediction(seq) for seq in seqs2]
+            logger.debug("Second Stage Classification: Completed")
+
             for fst, snd in zip(to_second_stage, snd_stage_results):
-                assert fst.desc == snd.desc, "Descriptions not the same"
-                assert fst.seq == snd.seq, "Sequences not the same"
+                self.validate_first_and_second(fst, snd)
                 predictions.append(
                     SingleResult(
                         desc=fst.desc,
@@ -202,4 +187,15 @@ class Classification:
                         probs=[fst.probs[0], snd.probs[1]],
                     )
                 )
+
         return predictions
+
+    def validate_first_and_second(self, fst, snd):
+        """
+        Validate that the HEADERS and SEQUENCES are the same for the first and
+        second stage predictions.
+        """
+        if fst.desc != snd.desc:
+            raise ValueError("Headers not the same")
+        if fst.seq != snd.seq:
+            raise ValueError("Sequences not the same")
