@@ -1,18 +1,20 @@
+import logging
 import os
 import sys
 from itertools import product
-import pkg_resources
 
-import tqdm
 import numpy as np
-from skorch import NeuralNetClassifier
+import pkg_resources
 import torch
-from torch import nn
+import tqdm
 from Bio.SeqIO.FastaIO import SimpleFastaParser
 from numba import njit
+from skorch import NeuralNetClassifier
+from torch import nn
 
-from tiara.src.transformations import TfidfWeighter
-from tiara.src.transformations import Transformer
+from tiara.src.transformations import TfidfWeighter, Transformer
+
+logger = logging.getLogger(__name__)
 
 
 # replace with your real data
@@ -35,10 +37,7 @@ second_stage_params = [
     dict(k=7, hidden_1=128, hidden_2=64, lr=0.01, dropout=0.2, epochs=47),
 ]
 
-kmer_to_pos_mappings = {
-    k: {"".join(kmer): i for i, kmer in enumerate(product("ACGT", repeat=k))}
-    for k in range(1, 12)
-}
+kmer_to_pos_mappings = {k: {"".join(kmer): i for i, kmer in enumerate(product("ACGT", repeat=k))} for k in range(1, 12)}
 
 
 @njit
@@ -62,7 +61,7 @@ def get_tfidf_repr(seqs, k, idf_vec):
     return result * idf_vec
 
 
-print("Started importing data")
+logger.info("Started importing data")
 with open(os.path.join(DATA_DIR, "mitochondria_fr.fasta")) as handle:
     mitochondria = [seq for _, seq in SimpleFastaParser(handle)]
 with open(os.path.join(DATA_DIR, "plast_fr.fasta")) as handle:
@@ -70,11 +69,7 @@ with open(os.path.join(DATA_DIR, "plast_fr.fasta")) as handle:
 with open(os.path.join(DATA_DIR, "bacteria_fr.fasta")) as handle:
     bacteria = [seq for _, seq in SimpleFastaParser(handle)]
 with open(os.path.join(DATA_DIR, "eukarya_fr.fasta")) as handle:
-    eukarya = [
-        seq.upper()
-        for _, seq in SimpleFastaParser(handle)
-        if set(seq.upper()) == set("ACGT")
-    ]
+    eukarya = [seq.upper() for _, seq in SimpleFastaParser(handle) if set(seq.upper()) == set("ACGT")]
 with open(os.path.join(DATA_DIR, "archaea_fr.fasta")) as handle:
     archea = [seq for _, seq in SimpleFastaParser(handle)]
 
@@ -82,15 +77,13 @@ with open(os.path.join(DATA_DIR, "archaea_fr.fasta")) as handle:
 def get_data(stage, k):
     transformer = Transformer(
         TfidfWeighter.load_params(
-            pkg_resources.resource_filename(
-                __name__, f"../models/tfidf-models/k{k}-{stage}-stage"
-            )
+            pkg_resources.resource_filename(__name__, f"../models/tfidf-models/k{k}-{stage}-stage")
         ),
         fragment_len=5000,
         k=k,
     )
     transformer.model.idfs = transformer.model.idfs.astype(np.float32)
-    print(f"Computing representations for stage {stage} and kmer {k}")
+    logger.info(f"Computing representations for stage {stage} and kmer {k}")
     if stage == "first":
         X = get_tfidf_repr(
             plastids + mitochondria + bacteria + archea + eukarya,
@@ -98,10 +91,7 @@ def get_data(stage, k):
             transformer.model.idfs,
         )
         y = np.array(
-            [0] * (len(plastids) + len(mitochondria))
-            + [1] * len(bacteria)
-            + [3] * len(archea)
-            + [4] * len(eukarya)
+            [0] * (len(plastids) + len(mitochondria)) + [1] * len(bacteria) + [3] * len(archea) + [4] * len(eukarya)
         )
     elif stage == "second":
         X = get_tfidf_repr(plastids + mitochondria, k, transformer.model.idfs)
@@ -109,7 +99,7 @@ def get_data(stage, k):
     else:
         raise ValueError("Wrong stage!")
     X = X / np.linalg.norm(X, axis=1).reshape((-1, 1))
-    print("Done")
+    logger.info("Done")
     return X, y
 
 
@@ -128,13 +118,11 @@ class MyNNet_2(nn.Sequential):
 
 
 for arch in first_stage_params:
-    print(f"Training architecture {arch}")
+    logger.info(f"Training architecture {arch}")
     k = arch["k"]
     X, y = get_data("first", k)
     net = NeuralNetClassifier(
-        MyNNet_2(
-            4 ** arch["k"], arch["hidden_1"], arch["hidden_2"], 5, arch["dropout"]
-        ),
+        MyNNet_2(4 ** arch["k"], arch["hidden_1"], arch["hidden_2"], 5, arch["dropout"]),
         max_epochs=arch["epochs"],
         lr=arch["lr"],
         train_split=None,
@@ -146,19 +134,16 @@ for arch in first_stage_params:
     net.save_params(
         f_params=pkg_resources.resource_filename(
             __name__,
-            os.path.join(OUTPUT_DIR, "_".join([f"{k}-{v}" for k, v in arch.items()]))
-            + ".pkl",
+            os.path.join(OUTPUT_DIR, "_".join([f"{k}-{v}" for k, v in arch.items()])) + ".pkl",
         )
     )
 
 for arch in second_stage_params:
-    print(f"Training architecture {arch}")
+    logger.info(f"Training architecture {arch}")
     k = arch["k"]
     X, y = get_data("second", k)
     net = NeuralNetClassifier(
-        MyNNet_2(
-            4 ** arch["k"], arch["hidden_1"], arch["hidden_2"], 3, arch["dropout"]
-        ),
+        MyNNet_2(4 ** arch["k"], arch["hidden_1"], arch["hidden_2"], 3, arch["dropout"]),
         max_epochs=arch["epochs"],
         lr=arch["lr"],
         train_split=None,
@@ -170,7 +155,6 @@ for arch in second_stage_params:
     net.save_params(
         f_params=pkg_resources.resource_filename(
             __name__,
-            os.path.join(OUTPUT_DIR, "_".join([f"{k}-{v}" for k, v in arch.items()]))
-            + ".pkl",
+            os.path.join(OUTPUT_DIR, "_".join([f"{k}-{v}" for k, v in arch.items()])) + ".pkl",
         )
     )

@@ -1,15 +1,18 @@
-from collections import defaultdict
-from typing import List, Union, Iterable
-from itertools import product
+import logging
 import os
-import tqdm
+from collections import defaultdict
+from itertools import product
+from typing import Iterable, List, Union
 
 import numpy as np
-from numba.typed import List as NumbaList
+import tqdm
 from Bio.SeqIO.FastaIO import SimpleFastaParser
+from numba.typed import List as NumbaList
 
+from tiara.src.bow import multiple_oligofreq, single_oligofreq
 from tiara.src.utilities import chop, count_sequences
-from tiara.src.bow import single_oligofreq, multiple_oligofreq
+
+logger = logging.getLogger(__name__)
 
 
 class TfidfWeighter:
@@ -67,13 +70,11 @@ class TfidfWeighter:
             fnames = data
         self.data_names = [fname.split(".")[0] for fname in fnames]
         if self.verbose:
-            print(
-                f"Training tf-idf model on {self.data_names} files with kmer length {self.k}."
-            )
+            logger.info(f"Training tf-idf model on {self.data_names} files with kmer length {self.k}.")
         self.N = 0
         for i, fname in enumerate(fnames):
             if self.verbose:
-                print(f"Processing file {i+1} ({fname})")
+                logger.info(f"Processing file {i + 1} ({fname})")
             with open(fname, "r") as handle:
                 if self.verbose:
                     sequences = tqdm.tqdm(
@@ -170,7 +171,7 @@ class TfidfWeighter:
             handle.write(f"smooth:{self.smooth}\n")
             handle.write(f"N:{self.N}\n")
             handle.write(f"data_names:{','.join(self.data_names)}")
-        print(f"Model parameters saved to: {fname} folder")
+        logger.info(f"Model parameters saved to: {fname} folder")
 
     def transform(self, data: Union[str, Iterable[str]]) -> np.ndarray:
         """Transform nucleotide sequences to tf-idf weighted bow representations
@@ -192,9 +193,7 @@ class TfidfWeighter:
             for seq in data:
                 seqs.append(seq)
         else:
-            raise TypeError(
-                f"Expected either a str or iterable of str, got {type(data)} instead."
-            )
+            raise TypeError(f"Expected either a str or iterable of str, got {type(data)} instead.")
         result = multiple_oligofreq(seqs, self.k) * self.idfs
         result = result / np.linalg.norm(result, axis=1).reshape((-1, 1))
         result = result.reshape(len(data), -1)
