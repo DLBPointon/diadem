@@ -57,7 +57,18 @@ class Classification:
         """
         self.threads = threads
         self.params = [parse_params(param) if isinstance(param, str) else param for param in params]
-        self.nnets = []
+        self.nnets = self.get_list_of_nnets(models, nnet_weights)
+        self.transformers = [TfidfWeighter.load_params(tfidf_param_folder) for tfidf_param_folder in tfidf]
+        self.min_len = min_len
+        self.layers = len(nnet_weights)
+        self.predictors = self.get_list_of_predictions()
+
+    def get_list_of_nnets(
+        self,
+        models,
+        nnet_weights,
+    ) -> List[NeuralNetClassifier]:
+        data = []
         for model, nnet_weight, params_dict in zip(models, nnet_weights, self.params):
             params_filtered = {
                 key: value
@@ -69,11 +80,8 @@ class Classification:
             net = NeuralNetClassifier(module, lr=0.0001, criterion=torch.nn.NLLLoss)
             net.initialize()
             net.load_params(f_params=nnet_weight)
-            self.nnets.append(net)
-        self.transformers = [TfidfWeighter.load_params(tfidf_param_folder) for tfidf_param_folder in tfidf]
-        self.min_len = min_len
-        self.layers = len(nnet_weights)
-        self.predictors = self.get_list_of_predictions()
+            data.append(net)
+        return data
 
     def get_list_of_predictions(
         self,
